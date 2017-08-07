@@ -2,12 +2,13 @@ import sys
 
 from setuptools import find_packages, setup
 
-from pymmonit import __version__, __author__
 
-setup(name='PyMMonit',
+exec(open('pymmonit/_version.py').read())
+
+setup(name='pymmonit',
       version=__version__,
       description='MMonit API wrapper written in Python',
-      author=__author__,
+      author='Javier Palomo Almena',
       author_email='javier.palomo.almena@gmail.com',
       url='https://github.com/jthacker/PyMMonit',
       license='GPLv3',
