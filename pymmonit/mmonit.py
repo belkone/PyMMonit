@@ -1,15 +1,23 @@
+import logging
+
 import requests
 
 
+log = logging.getLogger(__name__)
+
+
 class MMonit(object):
-    def __init__(self, mmonit_url, username, password):
+    def __init__(self, mmonit_url, username, password, tzinfo=None):
         self.mmonit_url = mmonit_url
         self.username = username
         self.password = password
-        self.login()
+        self.tzinfo = tzinfo
+        self._login()
+        self._cache = {}
 
-    def login(self):
-        self.session = requests.session()
+    def _login(self):
+        log.debug('mmonit is requiring a logging in')
+        self._session = requests.session()
         self._get('/index.csp')
         login_data = {
             "z_username": self.username,
@@ -17,18 +25,43 @@ class MMonit(object):
             "z_csrf_protection": "off"
         }
         self._post('/z_security_check', data=login_data)
+        log.debug('successfully logged in')
 
     def _get(self, url, params=None):
-        result = self.session.get(self.mmonit_url + url, params=params)
+        result = self._session.get(self.mmonit_url + url, params=params)
         result.raise_for_status()
         return result
 
     def _post(self, url, data=None):
-        result = self.session.post(self.mmonit_url + url, data)
+        result = self._session.post(self.mmonit_url + url, data)
         result.raise_for_status()
         return result
 
+    def _check_result(self, requestor, attempts=2):
+        for _ in range(attempts):
+            result = requestor()
+            # If an html document is returned, then we need to login
+            if result.headers.get('Content-Type') == 'text/html':
+                self._login()
+            else:
+                return result
+
+    def _get_json(self, url, params=None):
+        return self._check_result(
+            lambda url=url, params=params: self._get(url, params)).json()
+
+    def _post_json(self, url, data=None):
+        return self._check_result(
+            lambda url=url, data=data: self._post(url, data)).json()
+
     def _build_dict(self, **kwargs):
+        """ Build a dictionary from keyword arguments, dropping any keys where
+        the value is None
+
+        Returns
+        -------
+        dict
+        """
         d = {}
         for k, v in kwargs.iteritems():
             if v is not None:
@@ -44,7 +77,7 @@ class MMonit(object):
             params = dict(base_params,
                           results=500,
                           startindex=records_received)
-            results = self._get(url, params).json()
+            results = self._get_json(url, params)
             if records_total == None:
                 records_total = results['totalRecords']
             records_received += results['recordsReturned']
@@ -53,10 +86,42 @@ class MMonit(object):
             for record in results['records']:
                 yield record
 
+    def _map(self, url, invert=False):
+        """ Get a map specified by the URL, a map converts ids to strings.
+        For example /map/id/range maps a range id (e.g. 0) to a name (e.g. now)
+
+        Parameters
+        ----------
+        url : string
+            Relative path to the mapping
+        invert : boolean (default=False)
+            If set to True, returns the inverse mapping. E.g. if /map/id/range
+            returns an int -> string mapping then this will invert it so that
+            it is a string -> int mapping.
+
+        Returns
+        -------
+        The mapping or inverse mapping from the specified URL
+        """
+        cached_resp = self._cache.get(url)
+        if cached_resp is not None:
+            return cached_resp['inverted' if invert else 'forward']
+        resp = self._get_json(url)
+        for key in url.strip(' /').split('/'):
+            resp = resp[key]
+        mapping = {int(k):v for k, v in resp.iteritems()}
+        mapping_inv = {v:k for k, v in mapping.iteritems()}
+        self._cache[url] = {
+            'forward': mapping,
+            'inverted': mapping_inv
+        }
+        return mapping_inv if invert else mapping
+
     def hosts_list(self, hostid=None, hostgroupid=None, status=None,
                    platform=None, led=None):
         """
         Returns the current status of all hosts registered in M/Monit.
+
         http://mmonit.com/documentation/http-api/Methods/Status
         """
         data = self._build_dict(
@@ -66,64 +131,116 @@ class MMonit(object):
             platform=platform,
             led=led)
         if not data:
-            return self._get('/status/hosts/list').json()
-        return self._post('/status/hosts/list', data).json()
+            return self._get_json('/status/hosts/list')
+        return self._post_json('/status/hosts/list', data)
 
     def hosts_get(self, hostid):
         """
         Returns detailed status of the given host.
         """
         params = dict(id=hostid)
-        return self._get('/status/hosts/get', params).json()
+        return self._get_json('/status/hosts/get', params)
 
     def hosts_summary(self):
         """
         Returns a status summary of all hosts.
         """
-        return self._get('/status/hosts/summary').json()
+        return self._get_json('/status/hosts/summary')
+
+    def map_rangeids(self, invert=False):
+        return self._map('/map/id/range', invert=invert)
+
+    def map_statisticstype(self, invert=False):
+        return self._map('/map/id/statisticstype', invert=invert)
+
+    def map_hoststatus(self, invert=False):
+        return self._map('/map/id/hoststatus', invert=invert)
+
+    def analytics_get(self, timerange='now', hostid=None, statistic=None,
+                      kwargs={}):
+        """
+        Get analytics data, this is an undocument API.
+
+        Parameters
+        ----------
+        timerange : str (default="today")
+            Name of time range, e.g. now, 3 years, minute, etc.
+        hostid : int (default=None)
+        statistic : str (default=None)
+            Name of statistic to get
+        """
+        if timerange is None:
+            rangeid = None
+        else:
+            rangeid = self.map_rangeids(invert=True)[timerange]
+        if statistic is None:
+            statisticstype = None
+        else:
+            statisticstype = self.map_statisticstype(invert=True).get(statistic)
+        params = self._build_dict(
+            hostid=hostid,
+            range=rangeid,
+            statisticstype=statisticstype, **kwargs)
+        resp = self._post_json('/reports/analytics/get', params)
+        return resp
 
     def uptime_hosts(self):
         """
         http://mmonit.com/documentation/http-api/Methods/Uptime
         """
-        return self._get('/reports/uptime/list').json()
+        return self._get_json('/reports/uptime/list')
 
     def uptime_services(self, hostid=None):
         params = self._build_dict(id=hostid)
-        return self._get('/reports/uptime/get', params).json()
+        return self._get_json('/reports/uptime/get', params)
 
-    def events_list(self, hostid=None):
+    def events_list(self, **kwargs):
+        """ Events overview
+        See http://mmonit.com/documentation/http-api/Methods/Events for more
+        details on acceptible parameters.
+
+        Parameters
+        ----------
+        kwargs : keyword arguments
+            These are converted to a standard query string
+
+        Returns
+        -------
+        A generator of events. Dates are in GMT
         """
-        http://mmonit.com/documentation/http-api/Methods/Events
-        """
-        params = self._build_dict(hostid=hostid)
+        params = self._build_dict(**kwargs)
         return self._all_results('/reports/events/list', params)
 
-    def events_get(self, eventid=None):
+    def events_get(self, eventid):
+        """ Event details """
         params = self._build_dict(id=eventid)
-        return self._get('/reports/events/get', params).json()
+        return self._get_json('/reports/events/get', params)
 
     def events_summary(self):
-        return self._get('/reports/events/summary').json()
+        """ Events summary for the last 24 hours """
+        return self._get_json('/reports/events/summary')
 
     def events_dismiss(self, event_id):
-        return self._post('/reports/events/dismiss', event_id).json()
+        """ Dismiss and active event so it doesn't show up in the event list
+        if active filter is set to 2.
+        """
+        return self._post_json('/reports/events/dismiss', event_id)
 
     def admin_hosts_list(self):
         """
         http://mmonit.com/documentation/http-api/Methods/Admin_Hosts
         """
-        return self._get('/admin/hosts/list').json()
+        return self._get_json('/admin/hosts/list')
 
     def admin_hosts_get(self, hostid):
         params = dict(id=hostid)
-        return self._get('/admin/hosts/get', params).json()
+        return self._get_json('/admin/hosts/get', params)
 
     def admin_hosts_update(self, hostid, **kwargs):
         return NotImplemented
 
     def admin_hosts_delete(self, hostid):
-        return self._post('/admin/hosts/delete', {'id': hostid}).json()
+        return self._post_json('/admin/hosts/delete', {'id': hostid})
 
     def admin_hosts_test(self, ipaddr, port, ssl, monituser, monitpassword):
         data = {
@@ -133,7 +250,7 @@ class MMonit(object):
             'monituser': monituser,
             'monitpassword': monitpassword
         }
-        return self._post('/admin/hosts/test', data).json()
+        return self._post_json('/admin/hosts/test', data)
 
     def admin_hosts_action(self, id, action, service):
         data = {
@@ -141,4 +258,4 @@ class MMonit(object):
             'action': action,
             'service': service
         }
-        return self._post('/admin/hosts/action', data).json()
+        return self._post_json('/admin/hosts/action', data)
