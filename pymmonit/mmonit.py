@@ -190,8 +190,8 @@ class MMonit(object):
         """
         return self._get_json('/reports/uptime/list')
 
-    def uptime_services(self, hostid=None):
-        params = self._build_dict(id=hostid)
+    def uptime_services(self, **kwargs):
+        params = self._build_dict(**kwargs)
         return self._get_json('/reports/uptime/get', params)
 
     def events_list(self, **kwargs):
@@ -206,7 +206,7 @@ class MMonit(object):
 
         Returns
         -------
-        A generator of events. Dates are in GMT
+        A generator of events
         """
         params = self._build_dict(**kwargs)
         return self._all_results('/reports/events/list', params)
