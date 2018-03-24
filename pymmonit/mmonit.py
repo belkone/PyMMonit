@@ -63,7 +63,7 @@ class MMonit(object):
         dict
         """
         d = {}
-        for k, v in kwargs.iteritems():
+        for k, v in kwargs.items():
             if v is not None:
                 d[k] = v
         return d
@@ -109,8 +109,8 @@ class MMonit(object):
         resp = self._get_json(url)
         for key in url.strip(' /').split('/'):
             resp = resp[key]
-        mapping = {int(k):v for k, v in resp.iteritems()}
-        mapping_inv = {v:k for k, v in mapping.iteritems()}
+        mapping = {int(k):v for k, v in resp.items()}
+        mapping_inv = {v:k for k, v in mapping.items()}
         self._cache[url] = {
             'forward': mapping,
             'inverted': mapping_inv
