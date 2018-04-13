@@ -259,3 +259,70 @@ class MMonit(object):
             'service': service
         }
         return self._post_json('/admin/hosts/action', data)
+
+    def admin_groups_list(self):
+        return self._get_json('/admin/groups/list')
+
+    def admin_groups_create(self, name):
+        """ Create a new host group """
+        data = {
+            'name': name
+        }
+        return self._post_json('/admin/groups/create', data)
+
+    def admin_groups_update(self, id, name):
+        """ Rename an existing host group
+        Parameters
+        ----------
+        id : int
+            host group id
+        name : str
+            new host group name
+        """
+        data = {
+            'id': id,
+            'name': name
+        }
+        return self._post_json('/admin/groups/update', data)
+
+    def admin_groups_delete(self, id):
+        """ Delete an existing host group
+        Parameters
+        ----------
+        id : int
+            host group id
+        """
+        data = {
+            'id': id
+        }
+        return self._post_json('/admin/groups/delete', data)
+
+    def admin_groups_add(self, id, hostids):
+        """ Add a host to an existing group
+        Parameters
+        ----------
+        id : int
+            host group id
+        hostids : int or list(int)
+            list of host ids or single host id
+        """
+        data = {
+            'id': id,
+            'hostid': hostids
+        }
+        return self._post_json('/admin/groups/add', data)
+
+    def admin_groups_remove(self, id, hostids):
+        """ Remove hosts from an existing group
+        Parameters
+        ----------
+        id : int
+            host group id
+        hostids : int or list(int)
+            list of host ids or single host id
+        """
+        data = {
+            'id': id,
+            'hostid': hostids
+        }
+        return self._post_json('/admin/groups/remove', data)
