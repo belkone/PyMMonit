@@ -82,7 +82,7 @@ class MMonit(object):
                 records_total = results['totalRecords']
             records_received += results['recordsReturned']
             run = (records_received < records_total
-                    or results['recordsReturned'] == 0)
+                    and results['recordsReturned'] != 0)
             for record in results['records']:
                 yield record
 
