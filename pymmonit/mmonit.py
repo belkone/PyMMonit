@@ -7,17 +7,27 @@ log = logging.getLogger(__name__)
 
 
 class MMonit(object):
-    def __init__(self, mmonit_url, username, password, tzinfo=None):
+    def __init__(self, mmonit_url, username, password, tzinfo=None,
+                 http_basic_auth_user=None, http_basic_auth_password=None):
         self.mmonit_url = mmonit_url
         self.username = username
         self.password = password
         self.tzinfo = tzinfo
+        self.http_basic_auth_user = http_basic_auth_user
+        self.http_basic_auth_password = http_basic_auth_password
         self._login()
         self._cache = {}
 
     def _login(self):
         log.debug('mmonit is requiring a logging in')
         self._session = requests.session()
+
+        if self.http_basic_auth_user is not None \
+           and self.http_basic_auth_user is not None:
+            log.debug('using http basic auth')
+            self._session.auth = (self.http_basic_auth_user,
+                                  self.http_basic_auth_password)
+
         self._get('/index.csp')
         login_data = {
             "z_username": self.username,
